@@ -1,4 +1,4 @@
-function output = evaluateSBT(params, methods)
+function [output, As] = evaluateSBT(params, methods, As)
     tic
     methodsToDo = struct();
     if nargin < 2 
@@ -20,6 +20,14 @@ function output = evaluateSBT(params, methods)
         for method = methods
             methodsToDo.(method{1}) = true;
         end
+    end
+
+    if nargin < 3
+        buildAs = true;
+        As = struct();
+    else
+        buildAs = false;
+        disp("Using provided linear systems.")
     end
 
     %% Load in parameters and compute the slender-body setup.
@@ -84,9 +92,11 @@ function output = evaluateSBT(params, methods)
     % en to be et x constant vector, the latter being either [1;0;0] or [0;0;-1].
     en = @(s) correctForUndefinedNormal(en(s),et(s));
     eb = @(s) cross(et(s), en(s));
+    localBasis = @(s) [et(s), en(s), eb(s)];
     
     % Define er in terms of en and eb.
     er = @(s, phi) cos(phi) .* en(s) + sin(phi) .* eb(s);
+
     
     %% Compute derived quantities for use in integration.
     % Compute the effective eccentricity, used in the limits of integration
@@ -117,54 +127,26 @@ function output = evaluateSBT(params, methods)
     % XFront = xi + epsilon * eta * er(s,0), 
     % XSide = xi + epsilon * eta * er(s,pi/2), and
     % XBack = xi - epsilon * eta * er(s,0).
-    erAtSegmentMidpoints = zeros(3,N);
-    for pointInd = 1 : N
-        erAtSegmentMidpoints(:,pointInd) = er(segmentMidpoints(pointInd), 0);
-    end
-    erFrontAtSegmentMidpoints = cell2mat(arrayfun(@(s) er(s,0), segmentMidpoints, 'UniformOutput', false));
-    erSideAtSegmentMidpoints = cell2mat(arrayfun(@(s) er(s,pi/2), segmentMidpoints, 'UniformOutput', false));
-    erBackAtSegmentMidpoints = cell2mat(arrayfun(@(s) er(s,pi), segmentMidpoints, 'UniformOutput', false));
-    erOtherSideAtSegmentMidpoints = cell2mat(arrayfun(@(s) er(s,3*pi/2), segmentMidpoints, 'UniformOutput', false));
+    % XOtherSide = xi - epsilon * eta * er(s,pi/2), and
+    ers = struct();
+    ers.front = cell2mat(arrayfun(@(s) er(s,0), segmentMidpoints, 'UniformOutput', false));
+    ers.side = cell2mat(arrayfun(@(s) er(s,pi/2), segmentMidpoints, 'UniformOutput', false));
+    ers.back = cell2mat(arrayfun(@(s) er(s,pi), segmentMidpoints, 'UniformOutput', false));
+    ers.otherSide = cell2mat(arrayfun(@(s) er(s,3*pi/2), segmentMidpoints, 'UniformOutput', false));
     
-    XFront = xi(segmentMidpoints) + ep * eta(segmentMidpoints) .* erFrontAtSegmentMidpoints;
-    XSide= xi(segmentMidpoints) + ep * eta(segmentMidpoints) .* erSideAtSegmentMidpoints;
-    XBack = xi(segmentMidpoints) + ep * eta(segmentMidpoints) .* erBackAtSegmentMidpoints;
-    XOtherSide= xi(segmentMidpoints) + ep * eta(segmentMidpoints) .* erOtherSideAtSegmentMidpoints;
+    XFront = xi(segmentMidpoints) + ep * eta(segmentMidpoints) .* ers.front;
+    XSide = xi(segmentMidpoints) + ep * eta(segmentMidpoints) .* ers.side;
+    XBack = xi(segmentMidpoints) + ep * eta(segmentMidpoints) .* ers.back;
+    XOtherSide = xi(segmentMidpoints) + ep * eta(segmentMidpoints) .* ers.otherSide;
 
     % Now evaluate the velocity at these points.
-    V = linVel(segmentMidpoints);
-    Omega = zeros(3,N);
-    uFront = zeros(3,N);
-    uSide = zeros(3,N);
-    uBack = zeros(3,N);
-    uOtherSide = zeros(3,N);
-    for pointInd = 1 : N
-        s = segmentMidpoints(pointInd);
-        localBasis = [et(s), en(s), eb(s)];
-        Omega(:,pointInd) = localBasis * angVel(s);
-        uFront(:,pointInd) = V(:,pointInd) + ep * eta(s) * cross(Omega(:,pointInd), erFrontAtSegmentMidpoints(:, pointInd));
-        uSide(:,pointInd) =  V(:,pointInd) + ep * eta(s) * cross(Omega(:,pointInd), erSideAtSegmentMidpoints(:, pointInd));
-        uBack(:,pointInd) =  V(:,pointInd) + ep * eta(s) * cross(Omega(:,pointInd), erBackAtSegmentMidpoints(:, pointInd));
-        uOtherSide(:,pointInd) =  V(:,pointInd) + ep * eta(s) * cross(Omega(:,pointInd), erOtherSideAtSegmentMidpoints(:, pointInd));
-    end
+    [uFront, uSide, uBack, uOtherSide, Omega] = genVelBC(linVel, angVel, segmentMidpoints, eta, ers, params, localBasis);
 
     % Generate the final evaluation points and evaluate the prescribed velocity 
     % at these points. We won't sample directly at the tips of the slender 
     % body.
-    arclengthsEvaluation = linspace(-1, 1, params.numArclengthEvaluationPoints + 2);
-    arclengthsEvaluation = arclengthsEvaluation(2 : end-1);
-    anglesEvaluation = linspace(0, 2*pi, params.numCircumferentialEvaluationPoints + 1);
-    anglesEvaluation = anglesEvaluation(1 : end-1);
-    numEvalPoints = length(arclengthsEvaluation)*length(anglesEvaluation);
-    evaluationPoints = zeros(3,numEvalPoints);
-    velPrescribed = zeros(3,numEvalPoints);
-    for i = 1 : length(arclengthsEvaluation)
-        s = arclengthsEvaluation(i);
-        ers = cell2mat(arrayfun(@(phi) er(s, phi), anglesEvaluation, 'UniformOutput', false));
-        evaluationPoints(:,(i-1)*length(anglesEvaluation)+1 : i*length(anglesEvaluation)) = xi(s) + ep * eta(s) * ers;
-        localBasis = [et(s), en(s), eb(s)];
-        velPrescribed(:,(i-1)*length(anglesEvaluation)+1 : i*length(anglesEvaluation)) = linVel(s) + ep * eta(s) * cross(repmat(localBasis*angVel(s),1,length(anglesEvaluation)), ers);
-    end
+    [evaluationPoints, velPrescribed, evaluationArclengths, evaluationAngles] = genEvalPoints(linVel, angVel, params, xi, eta, er, localBasis);
+    numEvalPoints = size(evaluationPoints,2);
 
     %% Package output.
     output = struct();
@@ -176,223 +158,110 @@ function output = evaluateSBT(params, methods)
     output.boundaryBCAppliedPoints = [XFront, XSide];
     output.discreteSegmentArclengthMidpoints = segmentMidpoints;
     output.velPrescribed = velPrescribed;
-    output.evaluationArclengths = arclengthsEvaluation;
-    output.evaluationAngles = anglesEvaluation;
+    output.evaluationArclengths = evaluationArclengths;
+    output.evaluationAngles = evaluationAngles;
+
+    %% Options for computing integrals.
+    opts = odeset('AbsTol',tol,'RelTol',tol);
+
+    %% Save intermediates in a struct for easy passing to external functions.
+    intermediates = struct();
+    intermediates.N = N;
+    intermediates.ep = ep;
+    intermediates.segmentEndpoints = segmentEndpoints;
+    intermediates.segmentMidpoints = segmentMidpoints;
+    intermediates.XFront = XFront;
+    intermediates.XSide = XSide;
+    intermediates.XBack = XBack;
+    intermediates.XOtherSide = XOtherSide;
+    intermediates.uFront = uFront;
+    intermediates.uSide = uSide;
+    intermediates.uBack = uBack;
+    intermediates.uOtherSide = uOtherSide;
+    intermediates.opts = opts;
+    intermediates.xi = xi;
+    intermediates.eta = eta;
+    intermediates.et = et;
+    intermediates.en = en;
+    intermediates.eb = eb;
+    intermediates.ers = ers;
+    intermediates.Omega = Omega;
+    intermediates.I1 = I1;
+    intermediates.I1Approx = I1Approx;
+    intermediates.I2 = I2;
+    intermediates.dipoleWeightingFactor = dipoleWeightingFactor;
+    intermediates.regularisationParam = regularisationParam;
+    intermediates.e = e;
 
     % We'll form interpolants of all computed forces and torques.
     interps = struct();
 
+    % We'll store the computed linear systems and RHSs.
+    % Only rebuild the linear systems if not passed.
+    % We'll always rebuild the RHS.
+    Rs = struct();
+
     %% Form and solve the linear systems.
-    opts = odeset('AbsTol',tol,'RelTol',tol);
     if methodsToDo.rotletAnsatz
-        name = 'rotletAnsatz';
         %% Full rotlet ansatz.
-        % We form an 3Nx3N system and enforce the boundary condition at N 
-        % points along the length of the slender body, using the surface 
-        % velocity at XFront and XSide to give a full rank system.
-        disp('Rotlet ansatz...')
+        name = 'rotletAnsatz';
         output.(name) = struct();
-        ARotletAnsatz = zeros(3*N);
-        textprogressbar('Building matrix: ')
-        for pointInd = 1 : N
-            s = segmentMidpoints(pointInd);
-
-            % We'll want to integrate m x rotlet over each segment of the
-            % centreline, where m is constant on each segment. To do this,
-            % we'll integrate the rotlet kernel over each segment, then assign
-            % the relevant components to the matrix to perform the cross
-            % product. We do this for XFront and XSide at the same time.
-            integrand = @(s) [rotlet(XFront(:,pointInd), xi(s)); rotlet(XSide(:,pointInd), xi(s))];
-
-            % Compute the integrals. ODE15S is very good at this.
-            [~, sol] = ode15s(@(t,y) integrand(t), segmentEndpoints, zeros(6,1), opts);
-            integrals = diff(sol)';
-            
-
-            % Now assign the components of the computed integrals to the
-            % matrix serially. For each segment with midpoint s we are solving
-            % uFront(s) dot et(s) = sum over segments j( 
-            %                   torque(j) dot (integral over segment j of 
-            %                   R(XFront(s),xi(s')) ds')
-            %                   cross et(s).
-            % uFront(s) dot eb(s) = sum over segments j( 
-            %                   torque(j) dot (integral over segment j of 
-            %                   R(XFront(s),xi(s')) ds')
-            %                   cross eb(s).
-            % uSide(s) dot et(s) = sum over segments j( 
-            %                   torque(j) dot (integral over segment j of 
-            %                   R(XSide(s),xi(s')) ds')
-            %                   cross et(s).
-            
-            % First equation, computing the cross products of the XFront integrals
-            % with et(segmendMidpoints(pointInd)).
-            ARotletAnsatz((pointInd-1)*3+1,:) = reshape(cross(integrals(1:3,:), repmat(et(s), 1, N)),[],1);
-
-            % Second equation, computing the cross products of the XFront integrals
-            % with eb(segmendMidpoints(pointInd)).
-            ARotletAnsatz((pointInd-1)*3+2,:) = reshape(cross(integrals(1:3,:), repmat(eb(s), 1, N)),[],1);
-
-            % Third equation, computing the cross products of the XSide integrals
-            % with et(segmendMidpoints(pointInd)).
-            ARotletAnsatz((pointInd-1)*3+3,:) = reshape(cross(integrals(4:6,:), repmat(et(s), 1, N)),[],1);
-            textprogressbar(100 * pointInd / N)
+        if buildAs
+            As.(name) = genARotletAnsatz(intermediates);
         end
-        textprogressbar('Done!')
-
-        % Form the RHS of the linear system for the rotlet ansatz, which is 
-        % various dot products of uFront and uSide with et and eb.
-        RRotletAnsatz = zeros(3*N,1);
-        for pointInd = 1 : N
-            RRotletAnsatz((pointInd-1)*3 + 1) = dot(uFront(:,pointInd), et(s));
-            RRotletAnsatz((pointInd-1)*3 + 2) = dot(uFront(:,pointInd), eb(s));
-            RRotletAnsatz((pointInd-1)*3 + 3) = dot(uSide(:,pointInd), et(s));
-        end
+        Rs.(name) = genRRotletAnsatz(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = ARotletAnsatz \ RRotletAnsatz;
+        sol = As.(name) \ Rs.(name);
         output.(name).torque = reshape(sol,3,[]);
         interps.(name).torque = griddedInterpolant(segmentMidpoints, transpose(output.(name).torque), 'nearest', 'nearest');
         output.(name).vel = zeros(3,numEvalPoints);
     end
 
     if methodsToDo.rotletAnsatzRTT
+        %% Rotlet ansatz using RTT.
         name = 'rotletAnsatzRTT';
         output.(name) = struct();
-        %% Rotlet ansatz using RTT.
-        % We form an 3Nx3N system and enforce the boundary condition at N 
-        % points along the length of the slender body. The RTT directly relates
-        % the local torque to the local angular velocity, and we need only to
-        % evaluate the integral I1(s) and form diagonal blocks.
-        disp('Rotlet ansatz using RTT...')
-        ARotletAnsatzRTT = kron(diag(I1(segmentMidpoints)),eye(3));
-
-        % Form the RHS of the linear system for the rotlet ansatz with RTT, 
-        % which is simply Omega(s).
-        RRotletAnsatzRTT = Omega(:);
+        
+        if buildAs
+            As.(name) = genARotletAnsatzRTT(intermediates);
+        end
+        Rs.(name) = genRRotletAnsatzRTT(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = ARotletAnsatzRTT \ RRotletAnsatzRTT;
+        sol = As.(name) \ Rs.(name);
         output.(name).torque = reshape(sol,3,[]);
         interps.(name).torque = griddedInterpolant(segmentMidpoints, transpose(output.(name).torque), 'nearest', 'nearest');
         output.(name).vel = zeros(3,numEvalPoints);
     end
 
     if methodsToDo.rotletAnsatzRTTI1Approx
-        name = 'rotletAnsatzRTTI1Approx';
         %% Rotlet ansatz using approximate RTT.
-        % We form an 3Nx3N system and enforce the boundary condition at N 
-        % points along the length of the slender body. The approximate RTT 
-        % directly relates the local torque to the local angular velocity, and 
-        % we need only to evaluate the approximation to the integral I1(s) and 
-        % form diagonal blocks.
-        disp('Rotlet ansatz using RTT with I1 approximated...')
+        name = 'rotletAnsatzRTTI1Approx';
         output.(name) = struct();
-        ARotletAnsatzRTTI1Approx = kron(diag(I1Approx(segmentMidpoints)),eye(3));
-
-        % Form the RHS of the linear system for the rotlet ansatz with approximate RTT, 
-        % which is simply Omega(s).
-        RRotletAnsatzRTTApprox = Omega(:);
+        if buildAs
+            As.(name) = genARotletAnsatzRTTI1Approx(intermediates);
+        end
+        Rs.(name) = genRRotletAnsatzRTTI1Approx(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = ARotletAnsatzRTTI1Approx \ RRotletAnsatzRTTApprox;
+        sol = As.(name) \ Rs.(name);
         output.(name).torque = reshape(sol,3,[]);
         interps.(name).torque = griddedInterpolant(segmentMidpoints, transpose(output.(name).torque), 'nearest', 'nearest');
         output.(name).vel = zeros(3,numEvalPoints);
     end
 
     if methodsToDo.combinedAnsatz
-        name = 'combinedAnsatz';
         %% Full combined ansatz.
-        % We form an 6Nx6N system and enforce the boundary condition at 2N 
-        % points along the length of the slender body, using the surface 
-        % velocity at XFront and XSide to give a full rank system. The
-        % variables will be ordered as [f1x,f1y,...,fNz,m1x,m1y,...mNz], whilst
-        % the equations will be [uFront1,uSide1,uFront2,...,uSideN].
-        disp('Combined ansatz...')
+        name = 'combinedAnsatz';
         output.(name) = struct();
-        ACombinedAnsatz = zeros(6*N);
-        textprogressbar('Building matrix: ')
-        for pointInd = 1 : N
-            s = segmentMidpoints(pointInd);
-
-            %----
-            % Evaluate the translational part.
-            %----
-            % We'll integrate the translational kernel over each segment, then
-            % assign the relevant components to the matrix. We do this for
-            % XFront, XBack, XSide, XOtherSide at the same time.
-            integrandIntermediate = @(s,X) regularisedStokeslet(X,xi(s),regularisationParam(s)) + dipoleWeightingFactor * (e^2 - s.^2).*regularisedPotentialDipole(X,xi(s),regularisationParam(s));
-            integrand = @(s) [integrandIntermediate(s,XFront(:,pointInd)); integrandIntermediate(s,XBack(:,pointInd)); integrandIntermediate(s,XSide(:,pointInd)); integrandIntermediate(s,XOtherSide(:,pointInd))];
-    
-            % Compute the integrals. ODE15S is very good at this.
-            [~, sol] = ode15s(@(t,y) reshape(integrand(t),[],1), segmentEndpoints, zeros(36,1), opts);
-            integrals = reshape(diff(sol)',12,3*N);
-
-            uTransFront = integrals(1:3,:);
-            uTransBack = integrals(4:6,:);
-            uTransSide= integrals(7:9,:);
-            uTransOtherSide= integrals(10:12,:);
-            
-            % These equations will isolate any angular dynamics using the difference between two velocities.
-            ACombinedAnsatz((pointInd-1)*6+1,1:3*N) = et(s)' * (uTransFront - uTransBack);
-            ACombinedAnsatz((pointInd-1)*6+2,1:3*N) = eb(s)' * (uTransFront - uTransBack);
-            ACombinedAnsatz((pointInd-1)*6+3,1:3*N) = et(s)' * (uTransSide - uTransOtherSide);
-            
-            % These equations will isolate any translational dynamics using the sum of two velocities.
-            ACombinedAnsatz((pointInd-1)*6+4,1:3*N) = et(s)' * (uTransFront + uTransBack);
-            ACombinedAnsatz((pointInd-1)*6+5,1:3*N) = en(s)' * (uTransFront + uTransBack);
-            ACombinedAnsatz((pointInd-1)*6+6,1:3*N) = eb(s)' * (uTransFront + uTransBack);
-
-            %----
-            % Evaluate the rotlet part.
-            %----
-            % We'll want to integrate m x rotlet over each segment of the
-            % centreline, where m is constant on each segment. To do this,
-            % we'll integrate the rotlet kernel over each segment, then assign
-            % the relevant components to the matrix to perform the cross
-            % product. We do this for XFront and XSide at the same time.
-            integrand = @(s) [rotlet(XFront(:,pointInd), xi(s)); rotlet(XBack(:,pointInd), xi(s)); rotlet(XSide(:,pointInd), xi(s)); rotlet(XOtherSide(:,pointInd), xi(s))];
-
-            % Compute the integrals. ODE15S is very good at this.
-            [~, sol] = ode15s(@(t,y) integrand(t), segmentEndpoints, zeros(12,1), opts);
-            integrals = diff(sol)';
-
-            uAngFront = integrals(1:3,:);
-            uAngBack= integrals(4:6,:);
-            uAngSide = integrals(7:9,:);
-            uAngOtherSide = integrals(10:12,:);
-
-            % These equations will isolate any angular dynamics using the difference between two velocities.
-            ACombinedAnsatz((pointInd-1)*6+1,3*N+1:end) = reshape(cross(uAngFront - uAngBack, repmat(et(s),1,N)),1,[]);
-            ACombinedAnsatz((pointInd-1)*6+2,3*N+1:end) = reshape(cross(uAngFront - uAngBack, repmat(eb(s),1,N)),1,[]);
-            ACombinedAnsatz((pointInd-1)*6+3,3*N+1:end) = reshape(cross(uAngSide - uAngOtherSide, repmat(et(s),1,N)),1,[]);
-
-            % These equations will isolate any translational dynamics using the sum of two velocities.
-            ACombinedAnsatz((pointInd-1)*6+4,3*N+1:end) = reshape(cross(uAngFront + uAngBack, repmat(et(s),1,N)),1,[]);
-            ACombinedAnsatz((pointInd-1)*6+5,3*N+1:end) = reshape(cross(uAngFront + uAngBack, repmat(en(s),1,N)),1,[]);
-            ACombinedAnsatz((pointInd-1)*6+6,3*N+1:end) = reshape(cross(uAngFront + uAngBack, repmat(eb(s),1,N)),1,[]);
-            
-            textprogressbar(100 * pointInd / N);
+        if buildAs
+            As.(name) = genACombinedAnsatz(intermediates);
         end
-        textprogressbar('Done!')
-
-        % Form the RHS of the linear system, which is 
-        % various dot products of the velocities with et and eb.
-        RCombinedAnsatz= zeros(6*N,1);
-        for pointInd = 1 : N
-            s = segmentMidpoints(pointInd);
-
-            RCombinedAnsatz((pointInd-1)*6 + 1) = dot(uFront(:,pointInd) - uBack(:,pointInd), et(s));
-            RCombinedAnsatz((pointInd-1)*6 + 2) = dot(uFront(:,pointInd) - uBack(:,pointInd), eb(s));
-            RCombinedAnsatz((pointInd-1)*6 + 3) = dot(uSide(:,pointInd) - uOtherSide(:,pointInd), et(s));
-
-            RCombinedAnsatz((pointInd-1)*6 + 4) = dot(uFront(:,pointInd) + uBack(:,pointInd), et(s));
-            RCombinedAnsatz((pointInd-1)*6 + 5) = dot(uFront(:,pointInd) + uBack(:,pointInd), en(s));
-            RCombinedAnsatz((pointInd-1)*6 + 6) = dot(uFront(:,pointInd) + uBack(:,pointInd), eb(s));
-        end
+        Rs.(name) = genRCombinedAnsatz(intermediates);
 
         % Solve the linear system for the torque density.
-       sol = ACombinedAnsatz \ RCombinedAnsatz;
+        sol = As.(name) \ Rs.(name);
         output.(name).force = reshape(sol(1:3*N),3,[]);
         output.(name).torque = reshape(sol(3*N+1:end),3,[]);
         interps.(name).force = griddedInterpolant(segmentMidpoints, transpose(output.(name).force), 'nearest', 'nearest');
@@ -401,94 +270,16 @@ function output = evaluateSBT(params, methods)
     end
 
     if methodsToDo.combinedAnsatzBCApprox
-        name = 'combinedAnsatzBCApprox';
         %% Combined ansatz with leading-order rotlet integral.
-        % We form an 6Nx6N system and enforce the boundary condition at 2N 
-        % points along the length of the slender body, using the surface 
-        % velocity at XFront and XSide to give a full rank system. The
-        % variables will be ordered as [f1x,f1y,...,fNz,m1x,m1y,...mNz], whilst
-        % the equations will be [uFront1,uSide1,uFront2,...,uSideN].
-        disp('Combined ansatz with leading-order rotlet integral...')    
+        name = 'combinedAnsatzBCApprox';
         output.(name) = struct();
-        ACombinedAnsatzBCApprox = zeros(6*N);
-        textprogressbar('Building matrix: ')
-        for pointInd = 1 : N
-            s = segmentMidpoints(pointInd);
-
-            %----
-            % Evaluate the translational part.
-            %----
-            % We'll integrate the translational kernel over each segment, then
-            % assign the relevant components to the matrix. We do this for
-            % XFront, XBack, XSide, XOtherSide at the same time.
-            integrandIntermediate = @(s,X) regularisedStokeslet(X,xi(s),regularisationParam(s)) + dipoleWeightingFactor * (e^2 - s.^2).*regularisedPotentialDipole(X,xi(s),regularisationParam(s));
-            integrand = @(s) [integrandIntermediate(s,XFront(:,pointInd)); integrandIntermediate(s,XBack(:,pointInd)); integrandIntermediate(s,XSide(:,pointInd)); integrandIntermediate(s,XOtherSide(:,pointInd))];
-
-            % Compute the integrals. ODE15S is very good at this.
-            [~, sol] = ode15s(@(t,y) reshape(integrand(t),[],1), segmentEndpoints, zeros(36,1), opts);
-            integrals = reshape(diff(sol)',12,3*N);
-
-            uTransFront = integrals(1:3,:);
-            uTransBack = integrals(4:6,:);
-            uTransSide= integrals(7:9,:);
-            uTransOtherSide= integrals(10:12,:);
-            
-            % These equations will isolate any angular dynamics using the difference between two velocities.
-            ACombinedAnsatzBCApprox((pointInd-1)*6+1,1:3*N) = et(s)' * (uTransFront - uTransBack);
-            ACombinedAnsatzBCApprox((pointInd-1)*6+2,1:3*N) = eb(s)' * (uTransFront - uTransBack);
-            ACombinedAnsatzBCApprox((pointInd-1)*6+3,1:3*N) = et(s)' * (uTransSide - uTransOtherSide);
-            
-            % These equations will isolate any translational dynamics using the sum of two velocities.
-            ACombinedAnsatzBCApprox((pointInd-1)*6+4,1:3*N) = et(s)' * (uTransFront + uTransBack);
-            ACombinedAnsatzBCApprox((pointInd-1)*6+5,1:3*N) = en(s)' * (uTransFront + uTransBack);
-            ACombinedAnsatzBCApprox((pointInd-1)*6+6,1:3*N) = eb(s)' * (uTransFront + uTransBack);
-
-            %----
-            % Evaluate the rotlet part.
-            %----
-            % We'll use the leading-order result for the rotlet integrals,
-            % which include only the contribution of the local torque.
-            uAngFront = zeros(3,N);
-            uAngBack= zeros(3,N);
-            uAngSide = zeros(3,N);
-            uAngOtherSide = zeros(3,N);
-
-            uAngFront(:,pointInd) = ep * eta(s) * I1(s) * erFrontAtSegmentMidpoints(:,pointInd) - I2(s) * et(s);
-            uAngBack(:,pointInd) = ep * eta(s) * I1(s) * erBackAtSegmentMidpoints(:,pointInd) - I2(s) * et(s);
-            uAngSide(:,pointInd) = ep * eta(s) * I1(s) * erSideAtSegmentMidpoints(:,pointInd) - I2(s) * et(s);
-            uAngOtherSide(:,pointInd) = ep * eta(s) * I1(s) * erOtherSideAtSegmentMidpoints(:,pointInd) - I2(s) * et(s);
-
-            % These equations will isolate any angular dynamics using the difference between two velocities.
-            ACombinedAnsatzBCApprox((pointInd-1)*6+1,3*N+1:end) = reshape(cross(uAngFront - uAngBack, repmat(et(s),1,N)),1,[]);
-            ACombinedAnsatzBCApprox((pointInd-1)*6+2,3*N+1:end) = reshape(cross(uAngFront - uAngBack, repmat(eb(s),1,N)),1,[]);
-            ACombinedAnsatzBCApprox((pointInd-1)*6+3,3*N+1:end) = reshape(cross(uAngSide - uAngOtherSide, repmat(et(s),1,N)),1,[]);
-
-            % These equations will isolate any translational dynamics using the sum of two velocities.
-            ACombinedAnsatzBCApprox((pointInd-1)*6+4,3*N+1:end) = reshape(cross(uAngFront + uAngBack, repmat(et(s),1,N)),1,[]);
-            ACombinedAnsatzBCApprox((pointInd-1)*6+5,3*N+1:end) = reshape(cross(uAngFront + uAngBack, repmat(en(s),1,N)),1,[]);
-            ACombinedAnsatzBCApprox((pointInd-1)*6+6,3*N+1:end) = reshape(cross(uAngFront + uAngBack, repmat(eb(s),1,N)),1,[]);
-
-            textprogressbar(100 * pointInd / N)
+        if buildAs
+            As.(name) = genACombinedAnsatzBCApprox(intermediates);
         end
-        textprogressbar('Done!')
-
-        % Form the RHS of the linear system, which is 
-        % various dot products of the velocities with et and eb.
-        RCombinedAnsatzBCApprox = zeros(6*N,1);
-        for pointInd = 1 : N
-            s = segmentMidpoints(pointInd);
-
-            RCombinedAnsatzBCApprox((pointInd-1)*6 + 1) = dot(uFront(:,pointInd) - uBack(:,pointInd), et(s));
-            RCombinedAnsatzBCApprox((pointInd-1)*6 + 2) = dot(uFront(:,pointInd) - uBack(:,pointInd), eb(s));
-            RCombinedAnsatzBCApprox((pointInd-1)*6 + 3) = dot(uSide(:,pointInd) - uOtherSide(:,pointInd), et(s));
-
-            RCombinedAnsatzBCApprox((pointInd-1)*6 + 4) = dot(uFront(:,pointInd) + uBack(:,pointInd), et(s));
-            RCombinedAnsatzBCApprox((pointInd-1)*6 + 5) = dot(uFront(:,pointInd) + uBack(:,pointInd), en(s));
-            RCombinedAnsatzBCApprox((pointInd-1)*6 + 6) = dot(uFront(:,pointInd) + uBack(:,pointInd), eb(s));
-        end
+        Rs.(name) = genRCombinedAnsatzBCApprox(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = ACombinedAnsatzBCApprox \ RCombinedAnsatzBCApprox;
+        sol = As.(name) \ Rs.(name);
         output.(name).force = reshape(sol(1:3*N),3,[]);
         output.(name).torque = reshape(sol(3*N+1:end),3,[]);
         interps.(name).force = griddedInterpolant(segmentMidpoints, transpose(output.(name).force), 'nearest', 'nearest');
@@ -498,76 +289,16 @@ function output = evaluateSBT(params, methods)
     
 
     if methodsToDo.combinedAnsatzRTT
-        name = 'combinedAnsatzRTT';
         %% Combined ansatz with RTT.
-        % We form an 6Nx6N system and enforce the boundary condition at N 
-        % points along the length of the slender body, using the full boundary 
-        % condition at XFront, and the RTT relations at these N point to give a 
-        % full rank system. The variables will be ordered as 
-        % [f1x,f1y,...,fNz,m1x,m1y,...mNz], whilst the equations will be 
-        % [uFront1,...uFrontN,RTT1,...,RTTN].
-        disp('Combined ansatz with RTT...')    
+        name = 'combinedAnsatzRTT';
         output.(name) = struct();
-        ACombinedAnsatzRTT = zeros(6*N);
-        textprogressbar('Building matrix: ')
-        for pointInd = 1 : N
-            %----
-            % Evaluate the translational part.
-            %----
-            % We'll integrate the translational kernel over each segment, then
-            % assign the relevant components to the matrix.
-            integrandIntermediate = @(s,X) regularisedStokeslet(X,xi(s),regularisationParam(s)) + dipoleWeightingFactor * (e^2 - s.^2).*regularisedPotentialDipole(X,xi(s),regularisationParam(s));
-            integrand = @(s) integrandIntermediate(s,XFront(:,pointInd));
-
-            % We'll perform the integrals over different segments in parallel,
-            % as they are quite expensive.
-            % integrals = zeros(3,3,N);
-            % parfor segInd = 1 : N
-            %     integrals(:,:,segInd) = integral(integrand, segmentEndpoints(segInd), segmentEndpoints(segInd+1), 'ArrayValued', true, 'AbsTol', tol);
-            % end
-            [~, sol] = ode15s(@(t,y) reshape(integrand(t),[],1), segmentEndpoints, zeros(9,1), opts);
-
-            % Assign the computed integrals to the linear system.
-            % ACombinedAnsatzRTT((pointInd-1)*3+1 : (pointInd-1)*3+3, 1:3*N) = reshape(integrals,3,3*N);
-            ACombinedAnsatzRTT((pointInd-1)*3+1 : (pointInd-1)*3+3, 1:3*N) = reshape(diff(sol)',3,3*N);
-
-            %----
-            % Evaluate the rotlet part.
-            %----
-            % We'll want to integrate m x rotlet over each segment of the
-            % centreline, where m is constant on each segment. To do this,
-            % we'll integrate the rotlet kernel over each segment, then assign
-            % the relevant components to the matrix to perform the cross
-            % product.
-            integrand = @(s) rotlet(XFront(:,pointInd), xi(s));
-
-            % We'll perform the integrals over different segments in parallel,
-            % as they are quite expensive.
-            % integrals = zeros(3,N);
-            % parfor segInd = 1 : N
-            %     integrals(:,segInd) = integral(integrand, segmentEndpoints(segInd), segmentEndpoints(segInd+1), 'ArrayValued', true, 'AbsTol', tol);
-            % end
-            [~, sol] = ode15s(@(t,y) integrand(t), segmentEndpoints, zeros(3,1), opts);
-            integrals = diff(sol)';
-
-            % Assign the computed integrals to the linear system.
-            ACombinedAnsatzRTT((pointInd-1)*3+1 : (pointInd-1)*3+3, 3*N+1:end) = cell2mat(arrayfun(@(i) crossProductMatrix(integrals(:,i)), 1:N, 'UniformOutput',false));
-            textprogressbar(100 * pointInd / N)
+        if buildAs
+            As.(name) = genACombinedAnsatzRTT(intermediates);
         end
-        textprogressbar('Done!')
-
-        %----
-        % Evaluate the RTT part all at once.
-        %----
-        % We'll use the full RTT relation at the N points.
-        ACombinedAnsatzRTT(3*N+1:6*N,3*N+1:6*N) = kron(diag(I1(segmentMidpoints)),eye(3));
-
-        % Form the RHS of the linear system for the combined ansatz, which is 
-        % the velocity on the surface at XFront and XSide. 
-        RCombinedAnsatzRTT = [uFront(:); Omega(:)];
+        Rs.(name) = genRCombinedAnsatzRTT(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = ACombinedAnsatzRTT\ RCombinedAnsatzRTT;
+        sol = As.(name)\ Rs.(name);
         output.(name).force = reshape(sol(1:3*N),3,[]);
         output.(name).torque = reshape(sol(3*N+1:end),3,[]);
         interps.(name).force = griddedInterpolant(segmentMidpoints, transpose(output.(name).force), 'nearest', 'nearest');
@@ -577,63 +308,16 @@ function output = evaluateSBT(params, methods)
 
 
     if methodsToDo.combinedAnsatzRTTBCApprox
-        name = 'combinedAnsatzRTTBCApprox';
         %% Combined ansatz with RTT, using leading-order rotlet integrals.
-        % We form an 6Nx6N system and enforce the boundary condition at N 
-        % points along the length of the slender body, using the leading-order
-        % boundary condition at XFront, and the RTT result at these N points to
-        % give a full rank system. The variables will be ordered as 
-        % [f1x,f1y,...,fNz,m1x,m1y,...mNz], whilst the equations will be 
-        % [uFront1,...uFrontN,RTT1,...,RTTN].
-        disp('Combined ansatz with RTT and leading-order rotlet integral...')    
+        name = 'combinedAnsatzRTTBCApprox';
         output.(name) = struct();
-        ACombinedAnsatzRTTBCApprox = zeros(6*N);
-        textprogressbar('Building matrix: ')
-        for pointInd = 1 : N
-        
-            %----
-            % Evaluate the translational part.
-            %----
-            % We'll integrate the translational kernel over each segment, then
-            % assign the relevant components to the matrix.
-            integrandIntermediate = @(s,X) regularisedStokeslet(X,xi(s),regularisationParam(s)) + dipoleWeightingFactor * (e^2 - s.^2).*regularisedPotentialDipole(X,xi(s),regularisationParam(s));
-            integrand = @(s) integrandIntermediate(s,XFront(:,pointInd));
-
-            % We'll perform the integrals over different segments in parallel,
-            % as they are quite expensive.
-            % integrals = zeros(3,3,N);
-            % parfor segInd = 1 : N
-            %     integrals(:,:,segInd) = integral(integrand, segmentEndpoints(segInd), segmentEndpoints(segInd+1), 'ArrayValued', true, 'AbsTol', tol);
-            % end
-            [~, sol] = ode15s(@(t,y) reshape(integrand(t),[],1), segmentEndpoints, zeros(9,1), opts);
-
-            % Assign the computed integrals to the linear system.
-            % ACombinedAnsatzRTTBCApprox((pointInd-1)*3+1 : (pointInd-1)*3+3, 1:3*N) = reshape(integrals,3,3*N);
-            ACombinedAnsatzRTTBCApprox((pointInd-1)*3+1 : (pointInd-1)*3+3, 1:3*N) = reshape(diff(sol)',3,3*N);
-
-
-            %----
-            % Evaluate the rotlet part.
-            %----
-            % We'll use the leading-order result for the rotlet integrals,
-            % which include only the contribution of the local torque.
-            s = segmentMidpoints(pointInd);
-            ACombinedAnsatzRTTBCApprox((pointInd-1)*3+1 : (pointInd-1)*3+3, 3*N + (pointInd-1)*3+1 : 3*N + (pointInd-1)*3+3) = crossProductMatrix(ep * eta(s) * I1(s) * erFrontAtSegmentMidpoints(:,pointInd) - I2(s) * et(s));
-            textprogressbar(100 * pointInd / N)
+        if buildAs
+            As.(name) = genACombinedAnsatzRTTBCApprox(intermediates);
         end
-
-        %----
-        % Evaluate the RTT part all at once.
-        %----
-        % We'll use the full RTT relation at the N points.
-        ACombinedAnsatzRTTBCApprox(3*N+1:6*N,3*N+1:6*N) = kron(diag(I1(segmentMidpoints)),eye(3));
-
-        % Form the RHS of the linear system for the combined ansatz, which is 
-        % the velocity on the surface at XFront and XSide. 
-        RCombinedAnsatzRTTBCApprox = [uFront(:); Omega(:)];
+        Rs.(name) = genRCombinedAnsatzRTTBCApprox(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = ACombinedAnsatzRTTBCApprox\ RCombinedAnsatzRTTBCApprox;
+        sol = As.(name) \ Rs.(name);
         output.(name).force = reshape(sol(1:3*N),3,[]);
         output.(name).torque = reshape(sol(3*N+1:end),3,[]);
         interps.(name).force = griddedInterpolant(segmentMidpoints, transpose(output.(name).force), 'nearest', 'nearest');
