@@ -46,6 +46,12 @@ function [output, As] = evaluateSBT(params, methods, As)
         tol = 1e-12;
     end
 
+    if ~isfield(params,'verbose')
+        verbose = false;
+    else
+        verbose = params.verbose;
+    end
+
     % Select a parameterised body centreline function (x,y,z)(t) and derivative
     % (dx,dy,dz)(t) from centrelines.m.
     [x, y, z, dx, dy, dz, tRange, centrelineLab] = centrelines(params.xiSelector);
@@ -210,7 +216,7 @@ function [output, As] = evaluateSBT(params, methods, As)
         name = 'rotletAnsatz';
         output.(name) = struct();
         if buildAs
-            As.(name) = genARotletAnsatz(intermediates);
+            As.(name) = genARotletAnsatz(intermediates, verbose);
         end
         Rs.(name) = genRRotletAnsatz(intermediates);
 
@@ -227,7 +233,7 @@ function [output, As] = evaluateSBT(params, methods, As)
         output.(name) = struct();
         
         if buildAs
-            As.(name) = genARotletAnsatzRTT(intermediates);
+            As.(name) = genARotletAnsatzRTT(intermediates, verbose);
         end
         Rs.(name) = genRRotletAnsatzRTT(intermediates);
 
@@ -243,7 +249,7 @@ function [output, As] = evaluateSBT(params, methods, As)
         name = 'rotletAnsatzRTTI1Approx';
         output.(name) = struct();
         if buildAs
-            As.(name) = genARotletAnsatzRTTI1Approx(intermediates);
+            As.(name) = genARotletAnsatzRTTI1Approx(intermediates, verbose);
         end
         Rs.(name) = genRRotletAnsatzRTTI1Approx(intermediates);
 
@@ -259,7 +265,7 @@ function [output, As] = evaluateSBT(params, methods, As)
         name = 'combinedAnsatz';
         output.(name) = struct();
         if buildAs
-            As.(name) = genACombinedAnsatz(intermediates);
+            As.(name) = genACombinedAnsatz(intermediates, verbose);
         end
         Rs.(name) = genRCombinedAnsatz(intermediates);
 
@@ -277,7 +283,7 @@ function [output, As] = evaluateSBT(params, methods, As)
         name = 'combinedAnsatzBCApprox';
         output.(name) = struct();
         if buildAs
-            As.(name) = genACombinedAnsatzBCApprox(intermediates);
+            As.(name) = genACombinedAnsatzBCApprox(intermediates, verbose);
         end
         Rs.(name) = genRCombinedAnsatzBCApprox(intermediates);
 
@@ -296,7 +302,7 @@ function [output, As] = evaluateSBT(params, methods, As)
         name = 'combinedAnsatzRTT';
         output.(name) = struct();
         if buildAs
-            As.(name) = genACombinedAnsatzRTT(intermediates);
+            As.(name) = genACombinedAnsatzRTT(intermediates, verbose);
         end
         Rs.(name) = genRCombinedAnsatzRTT(intermediates);
 
@@ -315,7 +321,7 @@ function [output, As] = evaluateSBT(params, methods, As)
         name = 'combinedAnsatzRTTBCApprox';
         output.(name) = struct();
         if buildAs
-            As.(name) = genACombinedAnsatzRTTBCApprox(intermediates);
+            As.(name) = genACombinedAnsatzRTTBCApprox(intermediates, verbose);
         end
         Rs.(name) = genRCombinedAnsatzRTTBCApprox(intermediates);
 
