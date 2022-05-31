@@ -34,7 +34,7 @@ for speed = angularSpeeds
     params.angVelSelector = speed;
 
     % Evaluate the SBT ansaetze.
-    output = evaluateSBT(params, methodsToDo);
+    [output, As] = evaluateSBT(params, methodsToDo, As);
 
     % Evaluate the error in the velocity fields.
     errors = struct();

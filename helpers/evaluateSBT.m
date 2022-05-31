@@ -25,6 +25,9 @@ function [output, As] = evaluateSBT(params, methods, As)
     if nargin < 3
         buildAs = true;
         As = struct();
+    elseif isempty(As)
+        buildAs = true;
+        As = struct();
     else
         buildAs = false;
         disp("Using provided linear systems.")
