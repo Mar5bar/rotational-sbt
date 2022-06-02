@@ -47,6 +47,6 @@ for speed = angularSpeeds
         errors.(name) = evalVelErrors(name, output);
     end
 
-    %save(['output/validityOfRTT/',num2str(speed),'.mat'],'params','output','errors')
+    save(['output/validityOfRTT/',num2str(speed),'.mat'],'params','output','errors')
 
 end

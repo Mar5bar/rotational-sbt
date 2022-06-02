@@ -373,7 +373,7 @@ function [output, As, Es] = evaluateSBT(params, methods, As, Es)
         if buildERotlet
             disp('Building rotlet ansatz evaluation matrix')
             temp = zeros(3,numEvalPoints,3*N);
-            for pointInd = 1 : numEvalPoints
+            parfor pointInd = 1 : numEvalPoints
                 integrand = @(s) rotlet(evaluationPoints(:,pointInd), xi(s));
                 [~, sol] = ode15s(@(t,y) integrand(t), segmentEndpoints, zeros(3,1), opts);
                 integrals = diff(sol)';
@@ -385,7 +385,7 @@ function [output, As, Es] = evaluateSBT(params, methods, As, Es)
             disp('Building combined ansatz evaluation matrix')
             tempForce = zeros(3,numEvalPoints,3*N);
             tempTorque = zeros(3,numEvalPoints,3*N);
-            for pointInd = 1 : numEvalPoints
+            parfor pointInd = 1 : numEvalPoints
                 % Force contribution.
                 integrand = @(s) regularisedStokeslet(evaluationPoints(:,pointInd),xi(s),regularisationParam(s)) + dipoleWeightingFactor * (e^2 - s.^2).*regularisedPotentialDipole(evaluationPoints(:,pointInd),xi(s),regularisationParam(s));
                 [~, sol] = ode15s(@(t,y) reshape(integrand(t),9,1), segmentEndpoints, zeros(9,1), opts);
