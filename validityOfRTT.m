@@ -31,8 +31,17 @@ params.numCircumferentialEvaluationPoints = 12;
 
 params.verbose = true;
 
-As = [];
-Es = [];
+if exist('As','var')
+    disp('Using existing As')
+else
+    As = [];
+end
+if exist('Es','var')
+    disp('Using existing Es')
+else
+    Es = [];
+end
+
 for speed = angularSpeeds
 
     params.angVelSelector = speed;
