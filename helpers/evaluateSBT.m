@@ -351,7 +351,9 @@ function [output, As, Es] = evaluateSBT(params, methods, As, Es)
     % from each of the solution methods. We will now use these computed
     % values in the full forms of the ansaetze to evaluate the velocity on
     % the surface of the slender body at many points.
-    disp('Testing boundary velocity...')    
+    if verbose
+        disp('Testing boundary velocity...')
+    end
     
     % Check if we need to build the evaluation matrices.
     if buildEs
@@ -371,7 +373,9 @@ function [output, As, Es] = evaluateSBT(params, methods, As, Es)
     
         % Build the required evaluation matrices.
         if buildERotlet
-            disp('Building rotlet ansatz evaluation matrix')
+            if verbose
+                disp('Building rotlet ansatz evaluation matrix')
+            end
             temp = zeros(3,numEvalPoints,3*N);
             parfor pointInd = 1 : numEvalPoints
                 integrand = @(s) rotlet(evaluationPoints(:,pointInd), xi(s));
@@ -382,7 +386,9 @@ function [output, As, Es] = evaluateSBT(params, methods, As, Es)
             Es.rotlet = reshape(temp,3*numEvalPoints, 3*N);
         end
         if buildECombined
-            disp('Building combined ansatz evaluation matrix')
+            if verbose
+                disp('Building combined ansatz evaluation matrix')
+            end
             tempForce = zeros(3,numEvalPoints,3*N);
             tempTorque = zeros(3,numEvalPoints,3*N);
             parfor pointInd = 1 : numEvalPoints
