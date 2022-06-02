@@ -35,12 +35,12 @@ function A = genACombinedAnsatzRTTBCApprox(in, verbose)
     I2 = in.I2;
     ers = in.ers;
 
-    A = zeros(6*N);
+    B = zeros(3,N,6*N);
     if verbose
         textprogressbar('Building matrix: ')
     end
-    for pointInd = 1 : N
-    
+    parfor pointInd = 1 : N
+        temp = zeros(3,6*N);
         %----
         % Evaluate the translational part.
         %----
@@ -49,17 +49,10 @@ function A = genACombinedAnsatzRTTBCApprox(in, verbose)
         integrandIntermediate = @(s,X) regularisedStokeslet(X,xi(s),regularisationParam(s)) + dipoleWeightingFactor * (e^2 - s.^2).*regularisedPotentialDipole(X,xi(s),regularisationParam(s));
         integrand = @(s) integrandIntermediate(s,XFront(:,pointInd));
 
-        % We'll perform the integrals over different segments in parallel,
-        % as they are quite expensive.
-        % integrals = zeros(3,3,N);
-        % parfor segInd = 1 : N
-        %     integrals(:,:,segInd) = integral(integrand, segmentEndpoints(segInd), segmentEndpoints(segInd+1), 'ArrayValued', true, 'AbsTol', tol);
-        % end
         [~, sol] = ode15s(@(t,y) reshape(integrand(t),[],1), segmentEndpoints, zeros(9,1), opts);
 
         % Assign the computed integrals to the linear system.
-        % A((pointInd-1)*3+1 : (pointInd-1)*3+3, 1:3*N) = reshape(integrals,3,3*N);
-        A((pointInd-1)*3+1 : (pointInd-1)*3+3, 1:3*N) = reshape(diff(sol)',3,3*N);
+        temp(:,1:3*N) = reshape(diff(sol)',3,3*N);
 
         %----
         % Evaluate the rotlet part.
@@ -67,12 +60,15 @@ function A = genACombinedAnsatzRTTBCApprox(in, verbose)
         % We'll use the leading-order result for the rotlet integrals,
         % which include only the contribution of the local torque.
         s = segmentMidpoints(pointInd);
-        A((pointInd-1)*3+1 : (pointInd-1)*3+3, 3*N + (pointInd-1)*3+1 : 3*N + (pointInd-1)*3+3) = crossProductMatrix(ep * eta(s) * I1(s) * ers.front(:,pointInd) - I2(s) * et(s));
+        temp(:,3*N + (pointInd-1)*3+1 : 3*N + (pointInd-1)*3+3) = crossProductMatrix(ep * eta(s) * I1(s) * ers.front(:,pointInd) - I2(s) * et(s));
+
+        B(:,pointInd,:) = temp;
 
         if verbose
             textprogressbar(100 * pointInd / N)
         end
     end
+    A = [reshape(B,3*N,6*N); zeros(3*N,6*N)];
 
     %----
     % Evaluate the RTT part all at once.

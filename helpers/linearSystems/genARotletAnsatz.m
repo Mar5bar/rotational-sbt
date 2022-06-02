@@ -22,8 +22,9 @@ function A = genARotletAnsatz(in,verbose)
     eb = in.eb;
     opts = in.opts;
     
-    A = zeros(3*N);
-    for pointInd = 1 : N
+    A = zeros(3,N,3*N);
+    parfor pointInd = 1 : N
+        temp = zeros(3,3*N);
         s = segmentMidpoints(pointInd);
 
         % We'll want to integrate m x rotlet over each segment of the
@@ -55,19 +56,23 @@ function A = genARotletAnsatz(in,verbose)
         
         % First equation, computing the cross products of the XFront integrals
         % with et(segmendMidpoints(pointInd)).
-        A((pointInd-1)*3+1,:) = reshape(cross(integrals(1:3,:), repmat(et(s), 1, N)),[],1);
+        temp(1,:) = reshape(cross(integrals(1:3,:), repmat(et(s), 1, N)),[],1);
 
         % Second equation, computing the cross products of the XFront integrals
         % with eb(segmendMidpoints(pointInd)).
-        A((pointInd-1)*3+2,:) = reshape(cross(integrals(1:3,:), repmat(eb(s), 1, N)),[],1);
+        temp(2,:) = reshape(cross(integrals(1:3,:), repmat(eb(s), 1, N)),[],1);
 
         % Third equation, computing the cross products of the XSide integrals
         % with et(segmendMidpoints(pointInd)).
-        A((pointInd-1)*3+3,:) = reshape(cross(integrals(4:6,:), repmat(et(s), 1, N)),[],1);
+        temp(3,:) = reshape(cross(integrals(4:6,:), repmat(et(s), 1, N)),[],1);
+
+        A(:,pointInd,:) = temp;
+
         if verbose
             textprogressbar(100 * pointInd / N)
         end
     end
+    A = reshape(A, 3*N, 3*N);
     if verbose
         textprogressbar('Done!')
     end

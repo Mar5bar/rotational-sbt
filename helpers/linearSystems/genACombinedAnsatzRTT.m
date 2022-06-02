@@ -25,8 +25,9 @@ function A = genACombinedAnsatzRTT(in, verbose)
     e = in.e;
     I1 = in.I1;
 
-    A = zeros(6*N);
-    for pointInd = 1 : N
+    B = zeros(3,N,6*N);
+    parfor pointInd = 1 : N
+        temp = zeros(3,6*N);
         %----
         % Evaluate the translational part.
         %----
@@ -37,15 +38,10 @@ function A = genACombinedAnsatzRTT(in, verbose)
 
         % We'll perform the integrals over different segments in parallel,
         % as they are quite expensive.
-        % integrals = zeros(3,3,N);
-        % parfor segInd = 1 : N
-        %     integrals(:,:,segInd) = integral(integrand, segmentEndpoints(segInd), segmentEndpoints(segInd+1), 'ArrayValued', true, 'AbsTol', tol);
-        % end
         [~, sol] = ode15s(@(t,y) reshape(integrand(t),[],1), segmentEndpoints, zeros(9,1), opts);
 
         % Assign the computed integrals to the linear system.
-        % A((pointInd-1)*3+1 : (pointInd-1)*3+3, 1:3*N) = reshape(integrals,3,3*N);
-        A((pointInd-1)*3+1 : (pointInd-1)*3+3, 1:3*N) = reshape(diff(sol)',3,3*N);
+        temp(:,1:3*N) = reshape(diff(sol)',3,3*N);
 
         %----
         % Evaluate the rotlet part.
@@ -67,11 +63,14 @@ function A = genACombinedAnsatzRTT(in, verbose)
         integrals = diff(sol)';
 
         % Assign the computed integrals to the linear system.
-        A((pointInd-1)*3+1 : (pointInd-1)*3+3, 3*N+1:end) = cell2mat(arrayfun(@(i) crossProductMatrix(integrals(:,i)), 1:N, 'UniformOutput',false));
+        temp(:,3*N+1:end) = cell2mat(arrayfun(@(i) crossProductMatrix(integrals(:,i)), 1:N, 'UniformOutput',false));
+
+        B(:,pointInd,:) = temp;
         if verbose
             textprogressbar(100 * pointInd / N)
         end
     end
+    A = [reshape(B,3*N,6*N);zeros(3*N,6*N)];
 
     %----
     % Evaluate the RTT part all at once.

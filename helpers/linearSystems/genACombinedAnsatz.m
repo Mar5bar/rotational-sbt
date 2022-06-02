@@ -28,8 +28,9 @@ function A = genACombinedAnsatz(in, verbose)
     regularisationParam = in.regularisationParam;
     e = in.e;
 
-    A = zeros(6*N);
-    for pointInd = 1 : N
+    A = zeros(6,N,6*N);
+    parfor pointInd = 1 : N
+        temp = zeros(6,6*N);
         s = segmentMidpoints(pointInd);
 
         %----
@@ -47,18 +48,18 @@ function A = genACombinedAnsatz(in, verbose)
 
         uTransFront = integrals(1:3,:);
         uTransBack = integrals(4:6,:);
-        uTransSide= integrals(7:9,:);
+        uTransSide = integrals(7:9,:);
         uTransOtherSide= integrals(10:12,:);
         
         % These equations will isolate any angular dynamics using the difference between two velocities.
-        A((pointInd-1)*6+1,1:3*N) = et(s)' * (uTransFront - uTransBack);
-        A((pointInd-1)*6+2,1:3*N) = eb(s)' * (uTransFront - uTransBack);
-        A((pointInd-1)*6+3,1:3*N) = et(s)' * (uTransSide - uTransOtherSide);
+        temp(1,1:3*N) = et(s)' * (uTransFront - uTransBack);
+        temp(2,1:3*N) = eb(s)' * (uTransFront - uTransBack);
+        temp(3,1:3*N) = et(s)' * (uTransSide - uTransOtherSide);
         
         % These equations will isolate any translational dynamics using the sum of two velocities.
-        A((pointInd-1)*6+4,1:3*N) = et(s)' * (uTransFront + uTransBack);
-        A((pointInd-1)*6+5,1:3*N) = en(s)' * (uTransFront + uTransBack);
-        A((pointInd-1)*6+6,1:3*N) = eb(s)' * (uTransFront + uTransBack);
+        temp(4,1:3*N) = et(s)' * (uTransFront + uTransBack);
+        temp(5,1:3*N) = en(s)' * (uTransFront + uTransBack);
+        temp(6,1:3*N) = eb(s)' * (uTransFront + uTransBack);
 
         %----
         % Evaluate the rotlet part.
@@ -80,19 +81,22 @@ function A = genACombinedAnsatz(in, verbose)
         uAngOtherSide = integrals(10:12,:);
 
         % These equations will isolate any angular dynamics using the difference between two velocities.
-        A((pointInd-1)*6+1,3*N+1:end) = reshape(cross(uAngFront - uAngBack, repmat(et(s),1,N)),1,[]);
-        A((pointInd-1)*6+2,3*N+1:end) = reshape(cross(uAngFront - uAngBack, repmat(eb(s),1,N)),1,[]);
-        A((pointInd-1)*6+3,3*N+1:end) = reshape(cross(uAngSide - uAngOtherSide, repmat(et(s),1,N)),1,[]);
+        temp(1,3*N+1:end) = reshape(cross(uAngFront - uAngBack, repmat(et(s),1,N)),1,[]);
+        temp(2,3*N+1:end) = reshape(cross(uAngFront - uAngBack, repmat(eb(s),1,N)),1,[]);
+        temp(3,3*N+1:end) = reshape(cross(uAngSide - uAngOtherSide, repmat(et(s),1,N)),1,[]);
 
         % These equations will isolate any translational dynamics using the sum of two velocities.
-        A((pointInd-1)*6+4,3*N+1:end) = reshape(cross(uAngFront + uAngBack, repmat(et(s),1,N)),1,[]);
-        A((pointInd-1)*6+5,3*N+1:end) = reshape(cross(uAngFront + uAngBack, repmat(en(s),1,N)),1,[]);
-        A((pointInd-1)*6+6,3*N+1:end) = reshape(cross(uAngFront + uAngBack, repmat(eb(s),1,N)),1,[]);
+        temp(4,3*N+1:end) = reshape(cross(uAngFront + uAngBack, repmat(et(s),1,N)),1,[]);
+        temp(5,3*N+1:end) = reshape(cross(uAngFront + uAngBack, repmat(en(s),1,N)),1,[]);
+        temp(6,3*N+1:end) = reshape(cross(uAngFront + uAngBack, repmat(eb(s),1,N)),1,[]);
+
+        A(:,pointInd,:) = temp;
         
         if verbose
             textprogressbar(100 * pointInd / N);
         end
     end
+    A = reshape(A,6*N,6*N);
     if verbose
         textprogressbar('Done!')
     end
