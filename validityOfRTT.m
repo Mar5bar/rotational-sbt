@@ -32,12 +32,13 @@ params.numCircumferentialEvaluationPoints = 12;
 params.verbose = true;
 
 As = [];
+Es = [];
 for speed = angularSpeeds
 
     params.angVelSelector = speed;
 
     % Evaluate the SBT ansaetze.
-    [output, As] = evaluateSBT(params, methodsToDo, As);
+    [output, As, Es] = evaluateSBT(params, methodsToDo, As, Es);
 
     % Evaluate the error in the velocity fields.
     errors = struct();
@@ -46,6 +47,6 @@ for speed = angularSpeeds
         errors.(name) = evalVelErrors(name, output);
     end
 
-    save(['output/validityOfRTT/',num2str(speed),'.mat'],'params','output','errors')
+    %save(['output/validityOfRTT/',num2str(speed),'.mat'],'params','output','errors')
 
 end

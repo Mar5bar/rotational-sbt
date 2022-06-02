@@ -1,4 +1,4 @@
-function [output, As] = evaluateSBT(params, methods, As)
+function [output, As, Es] = evaluateSBT(params, methods, As, Es)
     tic
     methodsToDo = struct();
     if nargin < 2 
@@ -30,7 +30,18 @@ function [output, As] = evaluateSBT(params, methods, As)
         As = struct();
     else
         buildAs = false;
-        disp("Using provided linear systems.")
+        disp("Using provided linear systems for solution.")
+    end
+
+    if nargin < 4
+        buildEs = true;
+        Es = struct();
+    elseif isempty(Es)
+        buildEs = true;
+        Es = struct();
+    else
+        buildEs = false;
+        disp("Using provided linear systems for velocity evaluation.")
     end
 
     %% Load in parameters and compute the slender-body setup.
@@ -209,6 +220,7 @@ function [output, As] = evaluateSBT(params, methods, As)
     % Only rebuild the linear systems if not passed.
     % We'll always rebuild the RHS.
     Rs = struct();
+    sols = struct();
 
     %% Form and solve the linear systems.
     if methodsToDo.rotletAnsatz
@@ -221,8 +233,8 @@ function [output, As] = evaluateSBT(params, methods, As)
         Rs.(name) = genRRotletAnsatz(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = As.(name) \ Rs.(name);
-        output.(name).torque = reshape(sol,3,[]);
+        sols.(name) = As.(name) \ Rs.(name);
+        output.(name).torque = reshape(sols.(name),3,[]);
         interps.(name).torque = griddedInterpolant(segmentMidpoints, transpose(output.(name).torque), 'nearest', 'nearest');
         output.(name).vel = zeros(3,numEvalPoints);
     end
@@ -238,8 +250,8 @@ function [output, As] = evaluateSBT(params, methods, As)
         Rs.(name) = genRRotletAnsatzRTT(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = As.(name) \ Rs.(name);
-        output.(name).torque = reshape(sol,3,[]);
+        sols.(name) = As.(name) \ Rs.(name);
+        output.(name).torque = reshape(sols.(name),3,[]);
         interps.(name).torque = griddedInterpolant(segmentMidpoints, transpose(output.(name).torque), 'nearest', 'nearest');
         output.(name).vel = zeros(3,numEvalPoints);
     end
@@ -254,8 +266,8 @@ function [output, As] = evaluateSBT(params, methods, As)
         Rs.(name) = genRRotletAnsatzRTTI1Approx(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = As.(name) \ Rs.(name);
-        output.(name).torque = reshape(sol,3,[]);
+        sols.(name) = As.(name) \ Rs.(name);
+        output.(name).torque = reshape(sols.(name),3,[]);
         interps.(name).torque = griddedInterpolant(segmentMidpoints, transpose(output.(name).torque), 'nearest', 'nearest');
         output.(name).vel = zeros(3,numEvalPoints);
     end
@@ -270,9 +282,9 @@ function [output, As] = evaluateSBT(params, methods, As)
         Rs.(name) = genRCombinedAnsatz(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = As.(name) \ Rs.(name);
-        output.(name).force = reshape(sol(1:3*N),3,[]);
-        output.(name).torque = reshape(sol(3*N+1:end),3,[]);
+        sols.(name) = As.(name) \ Rs.(name);
+        output.(name).force = reshape(sols.(name)(1:3*N),3,[]);
+        output.(name).torque = reshape(sols.(name)(3*N+1:end),3,[]);
         interps.(name).force = griddedInterpolant(segmentMidpoints, transpose(output.(name).force), 'nearest', 'nearest');
         interps.(name).torque = griddedInterpolant(segmentMidpoints, transpose(output.(name).torque), 'nearest', 'nearest');
         output.(name).vel = zeros(3,numEvalPoints);
@@ -288,9 +300,9 @@ function [output, As] = evaluateSBT(params, methods, As)
         Rs.(name) = genRCombinedAnsatzBCApprox(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = As.(name) \ Rs.(name);
-        output.(name).force = reshape(sol(1:3*N),3,[]);
-        output.(name).torque = reshape(sol(3*N+1:end),3,[]);
+        sols.(name) = As.(name) \ Rs.(name);
+        output.(name).force = reshape(sols.(name)(1:3*N),3,[]);
+        output.(name).torque = reshape(sols.(name)(3*N+1:end),3,[]);
         interps.(name).force = griddedInterpolant(segmentMidpoints, transpose(output.(name).force), 'nearest', 'nearest');
         interps.(name).torque = griddedInterpolant(segmentMidpoints, transpose(output.(name).torque), 'nearest', 'nearest');
         output.(name).vel = zeros(3,numEvalPoints);
@@ -307,9 +319,9 @@ function [output, As] = evaluateSBT(params, methods, As)
         Rs.(name) = genRCombinedAnsatzRTT(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = As.(name)\ Rs.(name);
-        output.(name).force = reshape(sol(1:3*N),3,[]);
-        output.(name).torque = reshape(sol(3*N+1:end),3,[]);
+        sols.(name) = As.(name)\ Rs.(name);
+        output.(name).force = reshape(sols.(name)(1:3*N),3,[]);
+        output.(name).torque = reshape(sols.(name)(3*N+1:end),3,[]);
         interps.(name).force = griddedInterpolant(segmentMidpoints, transpose(output.(name).force), 'nearest', 'nearest');
         interps.(name).torque = griddedInterpolant(segmentMidpoints, transpose(output.(name).torque), 'nearest', 'nearest');
         output.(name).vel = zeros(3,numEvalPoints);
@@ -326,9 +338,9 @@ function [output, As] = evaluateSBT(params, methods, As)
         Rs.(name) = genRCombinedAnsatzRTTBCApprox(intermediates);
 
         % Solve the linear system for the torque density.
-        sol = As.(name) \ Rs.(name);
-        output.(name).force = reshape(sol(1:3*N),3,[]);
-        output.(name).torque = reshape(sol(3*N+1:end),3,[]);
+        sols.(name) = As.(name) \ Rs.(name);
+        output.(name).force = reshape(sols.(name)(1:3*N),3,[]);
+        output.(name).torque = reshape(sols.(name)(3*N+1:end),3,[]);
         interps.(name).force = griddedInterpolant(segmentMidpoints, transpose(output.(name).force), 'nearest', 'nearest');
         interps.(name).torque = griddedInterpolant(segmentMidpoints, transpose(output.(name).torque), 'nearest', 'nearest');
         output.(name).vel = zeros(3,numEvalPoints);
@@ -340,31 +352,67 @@ function [output, As] = evaluateSBT(params, methods, As)
     % values in the full forms of the ansaetze to evaluate the velocity on
     % the surface of the slender body at many points.
     disp('Testing boundary velocity...')    
+    
+    % Check if we need to build the evaluation matrices.
+    if buildEs
+        buildERotlet = false;
+        buildECombined = false;
+        fnames = fieldnames(methodsToDo);
+        for methodInd = 1 : numel(fnames)
+            name = fnames{methodInd};
+            if methodsToDo.(name)
+                if contains(name, 'rotlet')
+                    buildERotlet = true;
+                else
+                    buildECombined = true;
+                end
+            end
+        end
+    
+        % Build the required evaluation matrices.
+        if buildERotlet
+            disp('Building rotlet ansatz evaluation matrix')
+            temp = zeros(3,numEvalPoints,3*N);
+            for pointInd = 1 : numEvalPoints
+                integrand = @(s) rotlet(evaluationPoints(:,pointInd), xi(s));
+                [~, sol] = ode15s(@(t,y) integrand(t), segmentEndpoints, zeros(3,1), opts);
+                integrals = diff(sol)';
+                temp(:,pointInd,:) = cell2mat(arrayfun(@(i) crossProductMatrix(integrals(:,i)), 1:N, 'UniformOutput', false));
+            end
+            Es.rotlet = reshape(temp,3*numEvalPoints, 3*N);
+        end
+        if buildECombined
+            disp('Building combined ansatz evaluation matrix')
+            tempForce = zeros(3,numEvalPoints,3*N);
+            tempTorque = zeros(3,numEvalPoints,3*N);
+            for pointInd = 1 : numEvalPoints
+                % Force contribution.
+                integrand = @(s) regularisedStokeslet(evaluationPoints(:,pointInd),xi(s),regularisationParam(s)) + dipoleWeightingFactor * (e^2 - s.^2).*regularisedPotentialDipole(evaluationPoints(:,pointInd),xi(s),regularisationParam(s));
+                [~, sol] = ode15s(@(t,y) reshape(integrand(t),9,1), segmentEndpoints, zeros(9,1), opts);
+                integrals = reshape(diff(sol)',3,3*N);
+                tempForce(:,pointInd,:) = integrals;
 
-    % For each set of forces and/or torques we have found, evaluate the
-    % full ansaetz, using a piecewise-constant interpolant and numerically
-    % evaluating the integrals in full.
+                integrand = @(s) rotlet(evaluationPoints(:,pointInd), xi(s));
+                [~, sol] = ode15s(@(t,y) integrand(t), segmentEndpoints, zeros(3,1), opts);
+                integrals = diff(sol)';
+                tempTorque(:,pointInd,:) = cell2mat(arrayfun(@(i) crossProductMatrix(integrals(:,i)), 1:N, 'UniformOutput', false));
+            end
+            Es.combined = [reshape(tempForce,3*numEvalPoints, 3*N), reshape(tempTorque,3*numEvalPoints, 3*N)];
+        end
+    end
     
-    % Define the integrands.
-    rotletAnsatzIntegrand = @(x,s,torque) cross(reshape(torque(s),3,1), rotlet(x, xi(s)));
-    combinedAnsatzIntegrand = @(x,s,force,torque) (regularisedStokeslet(x,xi(s),regularisationParam(s)) + dipoleWeightingFactor * (e^2 - s.^2).*regularisedPotentialDipole(x,xi(s),regularisationParam(s))) * reshape(force(s),3,1) + rotletAnsatzIntegrand(x,s,torque);
-    
+    % Evaluate the velocity with the linear systems.
     fnames = fieldnames(methodsToDo);
     for methodInd = 1 : numel(fnames)
         name = fnames{methodInd};
         if methodsToDo.(name)
             disp(name)
-            temp = output.(name).vel;
             if contains(name, 'rotlet')
-                fun = @(pointInd, s) rotletAnsatzIntegrand(evaluationPoints(:,pointInd), s, interps.(name).torque);
+                E = Es.rotlet;
             else
-                fun = @(pointInd, s) combinedAnsatzIntegrand(evaluationPoints(:,pointInd), s, interps.(name).force, interps.(name).torque);
+                E = Es.combined;
             end
-            parfor pointInd = 1 : numEvalPoints
-                [~, sol] = ode15s(@(t,y) fun(pointInd, t), [-e,e], zeros(3,1), opts);
-                temp(:,pointInd) = sol(end,:);
-            end
-            output.(name).vel = temp;
+            output.(name).vel = reshape(E * sols.(name), 3, numEvalPoints);
         end
     end
 
